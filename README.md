@@ -123,7 +123,8 @@ which is why this lives in a repo instead of as a one-off file.
 
 ## Deploy checklist for Nov 3
 
-- [ ] Upload `index.php` to `socialnews.xyz/election-night/index.php`
+- [ ] Upload the whole folder to `socialnews.xyz/election-night/` (`index.php`
+      plus `data/` — `data/live.json` is created on the server when needed)
 - [ ] Check `?mode=test` renders, then switch to live mode
 - [ ] At 8 PM ET Tue, check Arizona Governor pulls from the AZ SOS export
 - [ ] Keep `data/live.json` ready as the fallback for any state whose
