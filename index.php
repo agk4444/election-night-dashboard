@@ -295,14 +295,21 @@ foreach ($RACES as $r) {
     [$status, $reason] = call_race((int)$d['dem'], (int)$d['rep'], (int)$d['other'],
         (float)$d['reported_pct'], (int)($r['expected_total'] ?? 0), !empty($r['runoff_50']));
     $total = (int)$d['dem'] + (int)$d['rep'] + (int)$d['other'];
-    $results[] = $r + $d + ['status' => $status, 'reason' => $reason, 'total' => $total,
+    // NOTE: $d must come FIRST in the union. $RACES entries carry dem/rep
+    // as candidate NAMES ("Jon Ossoff (D)"), while $d carries dem/rep as
+    // vote COUNTS. With PHP's + union, the left side wins on shared keys,
+    // so $r + $d made $results['dem'] a name string — number_format()
+    // on it fatally stopped the page mid-table on PHP 8.5, after row 1.
+    // $d + $r keeps the counts and fills in race metadata (label, etc.)
+    // from $r, and the data source label from $d.
+    $results[] = $d + $r + ['status' => $status, 'reason' => $reason, 'total' => $total,
         'dem_pct' => $total ? round(100 * $d['dem'] / $total, 1) : 0,
         'rep_pct' => $total ? round(100 * $d['rep'] / $total, 1) : 0];
 }
 $called_dem = count(array_filter($results, fn($x) => $x['status'] === 'called_dem'));
 $called_rep = count(array_filter($results, fn($x) => $x['status'] === 'called_rep'));
 $uncalled = count($results) - $called_dem - $called_rep;
-$fmt = fn($n) => number_format($n);
+$fmt = fn($n) => number_format((int)$n); // defensive: never feed number_format a name string again
 $status_label = [
   'called_dem' => 'CALLED — Dem', 'called_rep' => 'CALLED — Rep',
   'leading_dem' => 'Leading Dem', 'leading_rep' => 'Leading Rep',
