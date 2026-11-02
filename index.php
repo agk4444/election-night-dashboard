@@ -81,6 +81,10 @@ $RACES = [
   ['id' => 'oh-gov',  'label' => 'Ohio Governor',       'chamber' => 'Governor', 'dem' => 'Amy Acton (D)',    'rep' => 'Vivek Ramaswamy (R)', 'match' => 'Governor', 'poll_close' => '7:30 PM ET', 'source' => 'manual', 'url' => ''],
   ['id' => 'wi-gov',  'label' => 'Wisconsin Governor',  'chamber' => 'Governor', 'dem' => 'David Crowley (D)', 'rep' => 'Tom Tiffany (R)', 'match' => 'Governor', 'source' => 'manual', 'url' => ''],
   ['id' => 'fl-gov',  'label' => 'Florida Governor',    'chamber' => 'Governor', 'dem' => 'David Jolly (D)',  'rep' => 'Byron Donalds (R)', 'match' => 'Governor', 'source' => 'manual', 'url' => ''],
+  // Added Nov 1 2026: Texas Governor was not in the Psepho list, but late
+  // polls had it within a few points (TSU Oct 29: Abbott 50%, Hinojosa 47%),
+  // so it is tracked here just in case it is the night's surprise.
+  ['id' => 'tx-gov',  'label' => 'Texas Governor',      'chamber' => 'Governor', 'dem' => 'Gina Hinojosa (D)', 'rep' => 'Greg Abbott (R)', 'match' => 'Governor', 'source' => 'manual', 'url' => ''],
 ];
 
 // Test data: a plausible mid-evening snapshot. NOT real. Covers every
@@ -106,6 +110,7 @@ $TEST_DATA = [
   'oh-gov' => ['dem' => 1450000, 'rep' => 1380000, 'other' => 50000,  'reported_pct' => 94],
   'wi-gov' => ['dem' => 1250000, 'rep' => 1180000, 'other' => 30000,  'reported_pct' => 86],
   'fl-gov' => ['dem' => 3100000, 'rep' => 3500000, 'other' => 110000, 'reported_pct' => 90],
+  'tx-gov' => ['dem' => 2920000, 'rep' => 2940000, 'other' => 60000,  'reported_pct' => 73],
 ];
 
 // ---------------------------------------------------------------- helpers
