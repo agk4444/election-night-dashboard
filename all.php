@@ -7,9 +7,11 @@
  * What is available, verified live in the browser on Nov 3, 2026:
  * - civicAPI (free, no key): https://civicapi.org/api/v2/race/search
  *   and https://civicapi.org/api/v2/race/{id}
- *   - Governor races: paginate query=Governor, filter type === 'Governor'
- *     exactly (the search is substring matching, so it also returns
- *     Lieutenant Governor races and referendums mentioning "Governor").
+ *   - Governor races: national overview race 87535, region_results =
+ *     per-state Governor races (the search endpoint 503'd all evening
+ *     Nov 3, so search pagination was dropped).
+ *   - Senate races: national overview race 87528, region_results =
+ *     per-state Senate races (same search problem, same fix).
  *   - House overview: race ID 87524, "United States House of
  *     Representatives", type "House of Representatives" — a NATIONAL
  *     overview (province=US, district=null, candidates by party).
@@ -37,6 +39,8 @@ $CACHE_FILE = $CACHE_DIR . '/election-all-cache.json';
 $UA = 'socialnews.xyz election-night dashboard';
 $CIVIC = 'https://civicapi.org/api/v2';
 $HOUSE_RACE_ID = 87524;
+$SENATE_RACE_ID = 87528; // "United States Senate" national overview, region_results = per-state Senate races
+$GOV_RACE_ID = 87535;    // "United States Governors" national overview, region_results = per-state Governor races
 $fmt = fn($n) => number_format((int)$n);
 
 function fetch_url($url, $timeout = 45) {
@@ -136,6 +140,7 @@ if ($MODE === 'test') {
       ['label' => 'Texas Governor', 'state' => 'TX', 'dem' => 2920000, 'dem_name' => 'Gina Hinojosa', 'rep' => 2940000, 'rep_name' => 'Greg Abbott', 'other' => 60000, 'reported_pct' => 73, 'leader' => 'Greg Abbott (R)', 'source' => 'TEST DATA'],
     ];
     foreach ($SENATE as $s) $senate_live[$s['id']] = ['dem' => 1000000, 'rep' => 980000, 'other' => 20000, 'reported_pct' => 80, 'source' => 'TEST DATA'];
+    $senate_display = $SENATE;
     $fetch_ok = true;
 } else {
     if (file_exists($CACHE_FILE) && (time() - filemtime($CACHE_FILE)) < $CACHE_TTL) {
@@ -159,45 +164,64 @@ if ($MODE === 'test') {
                       'dem_seats' => $dseats, 'rep_seats' => $rseats, 'source' => 'civicAPI — House overview race 87524'];
             $fetch_ok = true;
         }
-        // All Governor races: paginate query=Governor, exact type filter.
-        // limit=20: the sizes that were verified live on Nov 3 (5-20).
-        // limit=100 was never verified and civicAPI's big queries 503
-        // with DATABASE_TIMEOUT, which left the Governor table empty.
-        $offset = 0; $limit = 20;
-        do {
-            $sj = civic_json("$CIVIC/race/search?startDate=2026-11-03&endDate=2026-11-03&country=US&query=Governor&limit=$limit&offset=$offset");
-            $races = $sj['races'] ?? [];
-            $count = count($races);
-            foreach ($races as $r) {
-                if (($r['type'] ?? '') !== 'Governor') continue;
-                $cands = $r['candidates'] ?? [];
-                [$dv, $dn] = party_votes($cands, 'Democrat');
-                [$rv, $rn] = party_votes($cands, 'Republican');
-                $total = 0; foreach ($cands as $c) $total += (int)($c['votes'] ?? 0);
-                $top = leader_of($cands);
-                $governors[] = ['label' => (string)($r['election_name'] ?? 'Governor'),
-                    'state' => (string)($r['province'] ?? ''), 'dem' => $dv, 'dem_name' => $dn,
-                    'rep' => $rv, 'rep_name' => $rn, 'other' => max(0, $total - $dv - $rv),
-                    'reported_pct' => (float)($r['percent_reporting'] ?? 0),
-                    'leader' => $top ? (string)($top['name'] ?? '') . ' (' . (string)($top['party'] ?? '') . ')' : '',
-                    'source' => 'civicAPI'];
-            }
-            $offset += $limit;
-        } while ($count >= $limit);
+        // All Governor races: national overview race, NOT the search
+        // endpoint. The search endpoint 503'd with DATABASE_TIMEOUT all
+        // evening Nov 3, leaving the table empty; the overview race
+        // (same single-race pattern as House 87524, via curl) is live
+        // and its region_results carry every Governor state.
+        $gj = civic_json("$CIVIC/race/$GOV_RACE_ID");
+        foreach (($gj['region_results'] ?? []) as $abbr => $r) {
+            $cands = $r['candidates'] ?? [];
+            if (!$cands) continue;
+            [$dv, $dn] = party_votes($cands, 'Democrat');
+            [$rv, $rn] = party_votes($cands, 'Republican');
+            $total = 0; foreach ($cands as $c) $total += (int)($c['votes'] ?? 0);
+            $top = leader_of($cands);
+            $governors[] = ['label' => (string)($r['name'] ?? strtoupper($abbr)) . ' Governor',
+                'state' => strtoupper((string)$abbr), 'dem' => $dv, 'dem_name' => $dn,
+                'rep' => $rv, 'rep_name' => $rn, 'other' => max(0, $total - $dv - $rv),
+                'reported_pct' => (float)($r['percent_reporting'] ?? 0),
+                'leader' => $top ? (string)($top['name'] ?? '') . ' (' . (string)($top['party'] ?? '') . ')' : '',
+                'source' => 'civicAPI — Governors overview race 87535'];
+        }
         if ($governors) $fetch_ok = true;
         usort($governors, fn($a, $b) => strcmp($a['state'], $b['state']));
-        // Key Senate races from the production manual file, if present.
-        $manual = [];
-        foreach ([__DIR__ . '/data/live.json'] as $p) {
-            if (file_exists($p)) { $manual = json_decode(file_get_contents($p), true) ?: []; break; }
+        // All Senate races: national overview race, same reason as
+        // Governors — its region_results carry every Senate state, so
+        // the 9-race manual list below is now only a fallback.
+        $senate_display = [];
+        $sjj = civic_json("$CIVIC/race/$SENATE_RACE_ID");
+        foreach (($sjj['region_results'] ?? []) as $abbr => $r) {
+            $cands = $r['candidates'] ?? [];
+            if (!$cands) continue;
+            [$dv, $dn] = party_votes($cands, 'Democrat');
+            [$rv, $rn] = party_votes($cands, 'Republican');
+            $total = 0; foreach ($cands as $c) $total += (int)($c['votes'] ?? 0);
+            $id = 'civic-' . strtolower((string)$abbr);
+            $senate_display[] = ['id' => $id,
+                'label' => (string)($r['name'] ?? strtoupper($abbr)) . ' Senate',
+                'dem' => $dn, 'rep' => $rn, 'runoff_50' => strtolower((string)$abbr) === 'ga'];
+            $senate_live[$id] = ['dem' => $dv, 'rep' => $rv, 'other' => max(0, $total - $dv - $rv),
+                'reported_pct' => (float)($r['percent_reporting'] ?? 0),
+                'source' => 'civicAPI — Senate overview race 87528'];
         }
-        foreach ($SENATE as $s) {
-            if (isset($manual[$s['id']])) {
-                $m = $manual[$s['id']];
-                $senate_live[$s['id']] = ['dem' => (int)($m['dem'] ?? 0), 'rep' => (int)($m['rep'] ?? 0),
-                    'other' => (int)($m['other'] ?? 0), 'reported_pct' => (float)($m['reported_pct'] ?? 0),
-                    'source' => 'Manual (official numbers pasted in)'];
+        if ($senate_display) { $fetch_ok = true; usort($senate_display, fn($a, $b) => strcmp($a['label'], $b['label'])); }
+        // Manual fallback: the production manual file, if present, only
+        // when civicAPI gave no Senate states at all.
+        if (!$senate_display) {
+            $manual = [];
+            foreach ([__DIR__ . '/data/live.json'] as $p) {
+                if (file_exists($p)) { $manual = json_decode(file_get_contents($p), true) ?: []; break; }
             }
+            foreach ($SENATE as $s) {
+                if (isset($manual[$s['id']])) {
+                    $m = $manual[$s['id']];
+                    $senate_live[$s['id']] = ['dem' => (int)($m['dem'] ?? 0), 'rep' => (int)($m['rep'] ?? 0),
+                        'other' => (int)($m['other'] ?? 0), 'reported_pct' => (float)($m['reported_pct'] ?? 0),
+                        'source' => 'Manual (official numbers pasted in)'];
+                }
+            }
+            $senate_display = $SENATE;
         }
         // Never cache an empty fetch: an empty cache would make the
         // next 120s of loads show "No Governor races" even after
@@ -224,7 +248,7 @@ foreach ($governors as $g) {
 $gov_called_dem = count(array_filter($gov_rows, fn($x) => $x['status'] === 'called_dem'));
 $gov_called_rep = count(array_filter($gov_rows, fn($x) => $x['status'] === 'called_rep'));
 $sen_rows = [];
-foreach ($SENATE as $s) {
+foreach ($senate_display as $s) {
     $d = $senate_live[$s['id']] ?? ['dem' => 0, 'rep' => 0, 'other' => 0, 'reported_pct' => 0, 'source' => 'No data yet'];
     [$status, $reason] = call_race((int)$d['dem'], (int)$d['rep'], (int)$d['other'], (float)$d['reported_pct'], !empty($s['runoff_50']));
     $total = (int)$d['dem'] + (int)$d['rep'] + (int)$d['other'];
@@ -299,14 +323,14 @@ $status_class = ['called_dem' => 'cd', 'called_rep' => 'cr', 'leading_dem' => 'l
   <div class="card"><div class="big"><?= count($gov_rows) ?></div><div class="lbl">Governor races (civicAPI, type = Governor)</div></div>
   <div class="card"><div class="big" style="color:var(--dem)"><?= $gov_called_dem ?></div><div class="lbl">Governor called — Dem (conservative rule)</div></div>
   <div class="card"><div class="big" style="color:var(--rep)"><?= $gov_called_rep ?></div><div class="lbl">Governor called — Rep (conservative rule)</div></div>
-  <div class="card"><div class="big"><?= count($sen_rows) ?></div><div class="lbl">Key Senate races (manual file)</div></div>
+  <div class="card"><div class="big"><?= count($sen_rows) ?></div><div class="lbl">Senate races (civicAPI overview)</div></div>
 </div>
 
 <div class="disclaimer">
   <strong>Honest scope — read this first:</strong> this page shows <strong>whatever is actually
   available</strong>, not all 506 federal races. civicAPI (free, no key) carries a national House
-  overview and paginated Governor races, but <strong>no individual US House district races</strong>
-  were found in it on Nov 3, and its Senate searches timed out. So House districts are
+  overview, a Senate overview, and a Governors overview, but <strong>no individual US House district races</strong>
+  were found in it on Nov 3. So House districts are
   <strong>not</strong> listed here — listing them with no votes would be worse than saying so.
   Calls here use the same conservative rule as the main page: called only when the margin
   exceeds every vote that could plausibly remain, or reporting is complete. All results are
@@ -358,8 +382,8 @@ $status_class = ['called_dem' => 'cd', 'called_rep' => 'cr', 'leading_dem' => 'l
 </div>
 
 <div class="panel" style="padding:0;overflow:hidden">
-<div style="padding:18px 18px 0"><h2 style="margin-bottom:0">Senate — key races only (manual file, same as main page)</h2>
-<p style="color:var(--mut);font-size:13px;margin:6px 0 12px">Full Senate list is not available in civicAPI tonight (its Senate searches timed out); these 9 are the ones the main page tracks.</p></div>
+<div style="padding:18px 18px 0"><h2 style="margin-bottom:0">Senate — all states (civicAPI overview race 87528)</h2>
+<p style="color:var(--mut);font-size:13px;margin:6px 0 12px">Every Senate state from the national overview race; the 9-race manual file is only a fallback if that race is unreachable.</p></div>
 <table>
 <thead><tr><th>Race</th><th>Status</th><th class="num">Dem</th><th class="num">Rep</th><th class="num hide-m">Other</th><th class="num hide-m">Reporting</th></tr></thead>
 <tbody>
@@ -381,8 +405,9 @@ $status_class = ['called_dem' => 'cd', 'called_rep' => 'cr', 'leading_dem' => 'l
 </div>
 
 <footer>
-  Sources: civicAPI (free, no key) for House overview + Governor races; the main page's
-  manual file for the 9 key Senate races; Arizona Governor also appears in the main page
+  Sources: civicAPI (free, no key) — House overview race 87524, Senate overview race 87528,
+  Governors overview race 87535; the main page's manual file is only a Senate fallback;
+  Arizona Governor also appears in the main page
   from the AZ Secretary of State feed. Calls on this page are conservative, transparent
   calls — not AP calls. House district-level results are not in civicAPI as verified
   Nov 3, 2026, so they are not shown here.
