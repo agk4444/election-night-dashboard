@@ -41,9 +41,22 @@ $fmt = fn($n) => number_format((int)$n);
 
 function fetch_url($url, $timeout = 45) {
     // 45s, not 15s: civicAPI's House race JSON is ~310 KB and slow
-    // under election-night load. CLI/curl (60s+ timeout) fetched it
-    // fine on Nov 3 evening while the 15s web fetch timed out.
+    // under election-night load.
+    // Prefer curl: on Nov 3 evening, shell curl got 200 for the House
+    // race while file_get_contents from web PHP failed in 0.1s on the
+    // same box minutes apart (test/test2 succeeded, test3 failed) —
+    // civicAPI is flaky with the stream wrapper tonight, curl is not.
     global $UA;
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_USERAGENT => $UA, CURLOPT_FOLLOWLOCATION => true]);
+        $raw = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+        if ($raw !== false && $code >= 200 && $code < 300) return $raw;
+        return null;
+    }
     $ctx = stream_context_create(['http' => ['timeout' => $timeout, 'user_agent' => $UA, 'ignore_errors' => true]]);
     $raw = @file_get_contents($url, false, $ctx);
     return $raw === false ? null : $raw;
