@@ -146,6 +146,24 @@ if ($MODE === 'test') {
     if (file_exists($CACHE_FILE) && (time() - filemtime($CACHE_FILE)) < $CACHE_TTL) {
         $cached = json_decode(file_get_contents($CACHE_FILE), true) ?: [];
         $house = $cached['house'] ?? null; $governors = $cached['governors'] ?? []; $senate_live = $cached['senate'] ?? [];
+        // Senate display rows MUST come from the cache too: they are
+        // built in the fetch branch only, so a cached load without
+        // them rendered an empty Senate table for 120s (Nov 3, 7:48 PM).
+        $senate_display = $cached['senate_display'] ?? null;
+        if ($senate_display === null) {
+            // Old-format cache (no display rows saved): rebuild labels
+            // from the civic keys rather than falling back to the 9
+            // manual races, whose IDs don't match civic vote rows.
+            $senate_display = [];
+            foreach (array_keys($senate_live) as $cid) {
+                if (strpos($cid, 'civic-') === 0) {
+                    $abbr = substr($cid, 6);
+                    $senate_display[] = ['id' => $cid, 'label' => strtoupper($abbr) . ' Senate',
+                        'dem' => '', 'rep' => '', 'runoff_50' => $abbr === 'ga'];
+                }
+            }
+            if (!$senate_display) $senate_display = $SENATE;
+        }
         $cache_ts = filemtime($CACHE_FILE); $fetch_ok = !empty($cached);
     } else {
         // House national overview (single race, civicAPI).
@@ -227,7 +245,7 @@ if ($MODE === 'test') {
         // next 120s of loads show "No Governor races" even after
         // civicAPI recovers. Only write when something was fetched.
         if ($fetch_ok) {
-            @file_put_contents($CACHE_FILE, json_encode(['house' => $house, 'governors' => $governors, 'senate' => $senate_live]), LOCK_EX);
+            @file_put_contents($CACHE_FILE, json_encode(['house' => $house, 'governors' => $governors, 'senate' => $senate_live, 'senate_display' => $senate_display]), LOCK_EX);
             $cache_ts = time();
         } elseif (file_exists($CACHE_FILE)) {
             $stale = true;
