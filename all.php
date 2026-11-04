@@ -129,7 +129,7 @@ $SENATE = [
 ];
 
 $stale = false; $cache_ts = 0; $fetch_ok = false;
-$house = null; $governors = []; $senate_live = [];
+$house = null; $house_rows = []; $governors = []; $senate_live = [];
 
 if ($MODE === 'test') {
     $house = ['dem' => 12000000, 'rep' => 11500000, 'other' => 800000, 'reported_pct' => 61,
@@ -145,7 +145,7 @@ if ($MODE === 'test') {
 } else {
     if (file_exists($CACHE_FILE) && (time() - filemtime($CACHE_FILE)) < $CACHE_TTL) {
         $cached = json_decode(file_get_contents($CACHE_FILE), true) ?: [];
-        $house = $cached['house'] ?? null; $governors = $cached['governors'] ?? []; $senate_live = $cached['senate'] ?? [];
+        $house = $cached['house'] ?? null; $house_rows = $cached['house_rows'] ?? []; $governors = $cached['governors'] ?? []; $senate_live = $cached['senate'] ?? [];
         // Senate display rows MUST come from the cache too: they are
         // built in the fetch branch only, so a cached load without
         // them rendered an empty Senate table for 120s (Nov 3, 7:48 PM).
@@ -180,6 +180,24 @@ if ($MODE === 'test') {
             $house = ['dem' => $dv, 'rep' => $rv, 'other' => max(0, $total - $dv - $rv),
                       'reported_pct' => (float)($hj['percent_reporting'] ?? 0),
                       'dem_seats' => $dseats, 'rep_seats' => $rseats, 'source' => 'civicAPI — House overview race 87524'];
+            // All 435 districts: region_results keys are district
+            // codes (ca-01 … ca-52, tx-38, fl-28, ak-al …), each with
+            // its own candidates — the district table we missed
+            // when we only read the top-level national aggregate.
+            foreach (($hj['region_results'] ?? []) as $code => $r) {
+                $cands = $r['candidates'] ?? [];
+                if (!$cands) continue;
+                [$ddv, $ddn] = party_votes($cands, 'Democrat');
+                [$drv, $drn] = party_votes($cands, 'Republican');
+                $dtotal = 0; foreach ($cands as $c) $dtotal += (int)($c['votes'] ?? 0);
+                $top = leader_of($cands);
+                $house_rows[] = ['label' => (string)($r['name'] ?? strtoupper($code)),
+                    'state' => strtoupper((string)$code), 'dem' => $ddv, 'dem_name' => $ddn,
+                    'rep' => $drv, 'rep_name' => $drn, 'other' => max(0, $dtotal - $ddv - $drv),
+                    'reported_pct' => (float)($r['percent_reporting'] ?? 0),
+                    'leader' => $top ? (string)($top['name'] ?? '') . ' (' . (string)($top['party'] ?? '') . ')' : '',
+                    'source' => 'civicAPI — House race 87524'];
+            }
             $fetch_ok = true;
         }
         // All Governor races: national overview race, NOT the search
@@ -245,7 +263,7 @@ if ($MODE === 'test') {
         // next 120s of loads show "No Governor races" even after
         // civicAPI recovers. Only write when something was fetched.
         if ($fetch_ok) {
-            @file_put_contents($CACHE_FILE, json_encode(['house' => $house, 'governors' => $governors, 'senate' => $senate_live, 'senate_display' => $senate_display]), LOCK_EX);
+            @file_put_contents($CACHE_FILE, json_encode(['house' => $house, 'house_rows' => $house_rows, 'governors' => $governors, 'senate' => $senate_live, 'senate_display' => $senate_display]), LOCK_EX);
             $cache_ts = time();
         } elseif (file_exists($CACHE_FILE)) {
             $stale = true;
@@ -260,6 +278,14 @@ foreach ($governors as $g) {
     [$status, $reason] = call_race((int)$g['dem'], (int)$g['rep'], (int)$g['other'], (float)$g['reported_pct']);
     $total = (int)$g['dem'] + (int)$g['rep'] + (int)$g['other'];
     $gov_rows[] = $g + ['status' => $status, 'reason' => $reason, 'total' => $total,
+        'dem_pct' => $total ? round(100 * $g['dem'] / $total, 1) : 0,
+        'rep_pct' => $total ? round(100 * $g['rep'] / $total, 1) : 0];
+}
+$house_dist_rows = [];
+foreach ($house_rows as $g) {
+    [$status, $reason] = call_race((int)$g['dem'], (int)$g['rep'], (int)$g['other'], (float)$g['reported_pct']);
+    $total = (int)$g['dem'] + (int)$g['rep'] + (int)$g['other'];
+    $house_dist_rows[] = $g + ['status' => $status, 'reason' => $reason, 'total' => $total,
         'dem_pct' => $total ? round(100 * $g['dem'] / $total, 1) : 0,
         'rep_pct' => $total ? round(100 * $g['rep'] / $total, 1) : 0];
 }
@@ -342,7 +368,7 @@ $status_class = ['called_dem' => 'cd', 'called_rep' => 'cr', 'leading_dem' => 'l
 <div class="wrap" style="padding-top:18px">
 
 <div class="tabs" role="tablist" aria-label="Race sections">
-  <button class="tabbtn active" role="tab" data-target="panel-house">House</button>
+  <button class="tabbtn active" role="tab" data-target="panel-house">House (<?= count($house_dist_rows) ?> districts)</button>
   <button class="tabbtn" role="tab" data-target="panel-governors">Governors (<?= count($gov_rows) ?>)</button>
   <button class="tabbtn" role="tab" data-target="panel-senate">Senate (<?= count($sen_rows) ?>)</button>
 </div>
@@ -357,9 +383,8 @@ $status_class = ['called_dem' => 'cd', 'called_rep' => 'cr', 'leading_dem' => 'l
 <div class="disclaimer">
   <strong>Honest scope — read this first:</strong> this page shows <strong>whatever is actually
   available</strong>, not all 506 federal races. civicAPI (free, no key) carries a national House
-  overview, a Senate overview, and a Governors overview, but <strong>no individual US House district races</strong>
-  were found in it on Nov 3. So House districts are
-  <strong>not</strong> listed here — listing them with no votes would be worse than saying so.
+  overview, a Senate overview, and a Governors overview, and the House
+  overview's region_results carry all 435 districts.
   Calls here use the same conservative rule as the main page: called only when the margin
   exceeds every vote that could plausibly remain, or reporting is complete. All results are
   unofficial until certified.
@@ -376,8 +401,28 @@ $status_class = ['called_dem' => 'cd', 'called_rep' => 'cr', 'leading_dem' => 'l
     · Seats as reported by civicAPI: Dem <?= (int)$house['dem_seats'] ?>, Rep <?= (int)$house['rep_seats'] ?> (218 needed for control)
     <?php else: ?> · 218 seats needed for House control <?php endif; ?>
   </p>
-  <p style="color:var(--mut);font-size:12px;margin-top:6px">Source: <?= htmlspecialchars($house['source']) ?> · This is the national party-vote overview, not 435 district results.</p>
+  <p style="color:var(--mut);font-size:12px;margin-top:6px">Source: <?= htmlspecialchars($house['source']) ?> · National total above; all 435 districts below.</p>
   <?php else: ?><p style="font-size:14px">House overview not available right now. <?= $stale ? 'Showing cached data.' : '' ?></p><?php endif; ?>
+  <?php if ($house_dist_rows): ?>
+  <table style="margin-top:14px">
+  <thead><tr><th>District</th><th>Status</th><th class="num">Dem</th><th class="num">Rep</th><th class="num hide-m">Other</th><th class="num hide-m">Reporting</th></tr></thead>
+  <tbody>
+  <?php foreach ($house_dist_rows as $r): ?>
+  <tr>
+    <td><strong><?= htmlspecialchars($r['label']) ?></strong><br><span style="color:var(--mut);font-size:11px"><?= htmlspecialchars($r['state']) ?> · leader: <?= htmlspecialchars($r['leader']) ?></span>
+      <div class="bar"><div style="width:<?= $r['dem_pct'] ?>%;background:var(--dem)"></div><div style="width:<?= $r['rep_pct'] ?>%;background:var(--rep)"></div></div>
+      <div class="reason"><?= htmlspecialchars($r['reason']) ?></div>
+    </td>
+    <td><span class="badge <?= $status_class[$r['status']] ?>"><?= $status_label[$r['status']] ?></span></td>
+    <td class="num"><?= $fmt($r['dem']) ?><br><span style="color:var(--mut)"><?= $r['dem_pct'] ?>%</span><br><span style="color:var(--mut);font-size:11px"><?= htmlspecialchars($r['dem_name']) ?></span></td>
+    <td class="num"><?= $fmt($r['rep']) ?><br><span style="color:var(--mut)"><?= $r['rep_pct'] ?>%</span><br><span style="color:var(--mut);font-size:11px"><?= htmlspecialchars($r['rep_name']) ?></span></td>
+    <td class="num hide-m"><?= $fmt($r['other']) ?></td>
+    <td class="num hide-m"><?= $r['reported_pct'] ? $r['reported_pct'] . '%' : '—' ?></td>
+  </tr>
+  <?php endforeach; ?>
+  </tbody>
+  </table>
+  <?php elseif ($house): ?><p style="color:var(--mut);font-size:13px;margin-top:10px">No district results yet.</p><?php endif; ?>
 </div>
 
 <div class="panel tabpanel" id="panel-governors" style="padding:0;overflow:hidden">
@@ -437,8 +482,8 @@ $status_class = ['called_dem' => 'cd', 'called_rep' => 'cr', 'leading_dem' => 'l
   Governors overview race 87535; the main page's manual file is only a Senate fallback;
   Arizona Governor also appears in the main page
   from the AZ Secretary of State feed. Calls on this page are conservative, transparent
-  calls — not AP calls. House district-level results are not in civicAPI as verified
-  Nov 3, 2026, so they are not shown here.
+  calls — not AP calls. House districts come from race 87524's region_results
+  (all 435, verified Nov 3, 2026).
 </footer>
 
 </div>
