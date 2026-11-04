@@ -39,7 +39,10 @@ $CIVIC = 'https://civicapi.org/api/v2';
 $HOUSE_RACE_ID = 87524;
 $fmt = fn($n) => number_format((int)$n);
 
-function fetch_url($url, $timeout = 15) {
+function fetch_url($url, $timeout = 45) {
+    // 45s, not 15s: civicAPI's House race JSON is ~310 KB and slow
+    // under election-night load. CLI/curl (60s+ timeout) fetched it
+    // fine on Nov 3 evening while the 15s web fetch timed out.
     global $UA;
     $ctx = stream_context_create(['http' => ['timeout' => $timeout, 'user_agent' => $UA, 'ignore_errors' => true]]);
     $raw = @file_get_contents($url, false, $ctx);
