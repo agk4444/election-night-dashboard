@@ -144,7 +144,10 @@ if ($MODE === 'test') {
             $fetch_ok = true;
         }
         // All Governor races: paginate query=Governor, exact type filter.
-        $offset = 0; $limit = 100;
+        // limit=20: the sizes that were verified live on Nov 3 (5-20).
+        // limit=100 was never verified and civicAPI's big queries 503
+        // with DATABASE_TIMEOUT, which left the Governor table empty.
+        $offset = 0; $limit = 20;
         do {
             $sj = civic_json("$CIVIC/race/search?startDate=2026-11-03&endDate=2026-11-03&country=US&query=Governor&limit=$limit&offset=$offset");
             $races = $sj['races'] ?? [];
@@ -180,9 +183,15 @@ if ($MODE === 'test') {
                     'source' => 'Manual (official numbers pasted in)'];
             }
         }
-        @file_put_contents($CACHE_FILE, json_encode(['house' => $house, 'governors' => $governors, 'senate' => $senate_live]), LOCK_EX);
-        $cache_ts = time();
-        if (!$fetch_ok && file_exists($CACHE_FILE)) $stale = true;
+        // Never cache an empty fetch: an empty cache would make the
+        // next 120s of loads show "No Governor races" even after
+        // civicAPI recovers. Only write when something was fetched.
+        if ($fetch_ok) {
+            @file_put_contents($CACHE_FILE, json_encode(['house' => $house, 'governors' => $governors, 'senate' => $senate_live]), LOCK_EX);
+            $cache_ts = time();
+        } elseif (file_exists($CACHE_FILE)) {
+            $stale = true;
+        }
     }
     if (!$cache_ts && file_exists($CACHE_FILE)) $cache_ts = filemtime($CACHE_FILE);
 }
@@ -266,7 +275,7 @@ $status_class = ['called_dem' => 'cd', 'called_rep' => 'cr', 'leading_dem' => 'l
 <div class="pagehead"><div class="wrap">
   <div class="kicker">Midterm 2026 · Election Night · Tue, Nov 3</div>
   <h1>All Races Available</h1>
-  <div style="color:var(--mut);font-size:13px">What civicAPI + the key-race manual file can actually show tonight · <a href="index.php">Back to the 20 key races</a></div>
+  <div style="color:var(--mut);font-size:13px">What civicAPI + the key-race manual file can actually show tonight · <a href="key.php">Back to the 20 key races</a></div>
 </div></div>
 <div class="wrap" style="padding-top:18px">
 
