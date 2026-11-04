@@ -289,6 +289,10 @@ $status_class = ['called_dem' => 'cd', 'called_rep' => 'cr', 'leading_dem' => 'l
   .card .big { font-size:28px; font-weight:800; }
   .card .lbl { color:var(--mut); font-size:12px; margin-top:5px; line-height:1.5; }
   .panel { background:var(--card); border:1px solid var(--line); border-radius:4px; padding:18px; margin-bottom:20px; }
+  .tabs { display:flex; gap:8px; margin:0 0 18px; flex-wrap:wrap; }
+  .tabbtn { background:var(--card); border:1px solid var(--line); border-bottom:3px solid transparent; border-radius:4px 4px 0 0; padding:10px 18px; font-size:15px; font-weight:700; color:var(--ink); cursor:pointer; }
+  .tabbtn.active { border-bottom-color:var(--brand); color:var(--brand); }
+  .tabpanel.hidden { display:none; }
   .panel h2 { font-size:18px; border-bottom:2px solid var(--brand); padding-bottom:8px; margin-bottom:12px; }
   table { width:100%; border-collapse:collapse; font-size:14px; }
   th, td { text-align:left; padding:10px; border-bottom:1px solid var(--line); vertical-align:top; }
@@ -319,6 +323,12 @@ $status_class = ['called_dem' => 'cd', 'called_rep' => 'cr', 'leading_dem' => 'l
 </div></div>
 <div class="wrap" style="padding-top:18px">
 
+<div class="tabs" role="tablist" aria-label="Race sections">
+  <button class="tabbtn active" role="tab" data-target="panel-house">House</button>
+  <button class="tabbtn" role="tab" data-target="panel-governors">Governors (<?= count($gov_rows) ?>)</button>
+  <button class="tabbtn" role="tab" data-target="panel-senate">Senate (<?= count($sen_rows) ?>)</button>
+</div>
+
 <div class="cards">
   <div class="card"><div class="big"><?= count($gov_rows) ?></div><div class="lbl">Governor races (civicAPI, type = Governor)</div></div>
   <div class="card"><div class="big" style="color:var(--dem)"><?= $gov_called_dem ?></div><div class="lbl">Governor called — Dem (conservative rule)</div></div>
@@ -337,7 +347,7 @@ $status_class = ['called_dem' => 'cd', 'called_rep' => 'cr', 'leading_dem' => 'l
   unofficial until certified.
 </div>
 
-<div class="panel">
+<div class="panel tabpanel active" id="panel-house">
   <h2>House — national overview (civicAPI race 87524)</h2>
   <?php if ($house): ?>
   <p style="font-size:14px;line-height:1.7">
@@ -352,7 +362,7 @@ $status_class = ['called_dem' => 'cd', 'called_rep' => 'cr', 'leading_dem' => 'l
   <?php else: ?><p style="font-size:14px">House overview not available right now. <?= $stale ? 'Showing cached data.' : '' ?></p><?php endif; ?>
 </div>
 
-<div class="panel" style="padding:0;overflow:hidden">
+<div class="panel tabpanel" id="panel-governors" style="padding:0;overflow:hidden">
 <div style="padding:18px 18px 0"><h2 style="margin-bottom:0">Governor — all available (civicAPI)</h2>
 <p style="color:var(--mut);font-size:13px;margin:6px 0 12px">
   Data as of <?= $MODE === 'test' ? 'test snapshot' : ($cache_ts ? date('M j, g:i A T', $cache_ts) : '—') ?>
@@ -381,7 +391,7 @@ $status_class = ['called_dem' => 'cd', 'called_rep' => 'cr', 'leading_dem' => 'l
 </table>
 </div>
 
-<div class="panel" style="padding:0;overflow:hidden">
+<div class="panel tabpanel" id="panel-senate" style="padding:0;overflow:hidden">
 <div style="padding:18px 18px 0"><h2 style="margin-bottom:0">Senate — all states (civicAPI overview race 87528)</h2>
 <p style="color:var(--mut);font-size:13px;margin:6px 0 12px">Every Senate state from the national overview race; the 9-race manual file is only a fallback if that race is unreachable.</p></div>
 <table>
@@ -414,5 +424,17 @@ $status_class = ['called_dem' => 'cd', 'called_rep' => 'cr', 'leading_dem' => 'l
 </footer>
 
 </div>
+<script>
+(function () {
+  var btns = document.querySelectorAll('.tabbtn');
+  var panels = document.querySelectorAll('.tabpanel');
+  function show(id) {
+    btns.forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-target') === id); });
+    panels.forEach(function (p) { p.classList.toggle('hidden', p.id !== id); });
+  }
+  btns.forEach(function (b) { b.addEventListener('click', function () { show(b.getAttribute('data-target')); }); });
+  show('panel-house');
+})();
+</script>
 </body>
 </html>
